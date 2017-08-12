@@ -9,9 +9,7 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
-    /// XXX: Moved into https://github.com/docker/libnetwork
 	"github.com/docker/libnetwork/portallocator"
-	//"github.com/docker/docker/pkg/iptables"
 )
 
 type mapping struct {
@@ -40,7 +38,7 @@ type PortMapper struct {
 }
 
 func New() *PortMapper {
-	return NewWithPortAllocator(portallocator.New())
+	return NewWithPortAllocator(portallocator.Get())
 }
 
 func NewWithPortAllocator(allocator *portallocator.PortAllocator) *PortMapper {
