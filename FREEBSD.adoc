@@ -1,0 +1,246 @@
+= Docker on FreeBSD
+
+The FreeBSD port of Docker requires ZFS and FreeBSD 11.1-RELEASE or greater.
+
+== Participate
+
+
+Chat for this effort can be found in the `#freebsd-docker` chanenl on
+link:http://freenode.net[Freenode].
+
+== Running
+
+[[prereqs]]
+== Prerequisites
+
+Please ensure the following packages are installed:
+
+* `go`
+* `git`
+* `sqlite3`
+* `bash`
+* `ca_root_nss`
+
+[source,bash]
+----
+sudo pkg install ca_root_nss bash sqlite3 git go
+----
+
+
+[[zfs]]
+=== Setting up ZFS
+
+* Load the kernel module: `kldload zfs`
+* `sudo zfs mount -a`
+
+[[networking]]
+=== Setting up networking
+
+Docker provides each container an unique ip address on shared network interface
+
+[source,bash]
+----
+docker run -it lexaguskov/freebsd ifconfig lo1
+----
+
+Docker configures basic networking for the container itself, but in order to
+route traffic in/out of the container, some manual
+link:https://www.freebsd.org/doc/handbook/firewalls-pf.html[Pf] configuration
+is required.
+
+[source,bash]
+----
+echo "nat on {yout-external-interface} from 172.17.0.0/16 to any -> ({your-external-interface})" > /etc/pf.conf
+pfctl -f /etc/pf.conf
+pfctl -e
+----
+
+
+=== Progress
+
+.Features
+|===
+| Feature | Status
+
+| Image loading
+| :white_check_mark:
+
+| Container creationg
+| :white_check_mark:
+
+| Container start/stop
+| :white_check_mark:
+
+| Shared Networking
+| partial support
+
+| Port forwarding
+| :white_check_mark:
+
+| Volumes
+| :x:
+
+| Links
+| :x:
+
+| Virtual networking
+| :x:
+
+| Limits
+| :x:
+
+|===
+
+.Commands
+|===
+| Command | Status
+
+| attach
+| :white_check_mark:
+
+| build
+|
+
+| commit
+| :white_check_mark:
+
+| cp
+| :white_check_mark:
+
+| create
+| :white_check_mark:
+
+| diff
+| :white_check_mark:
+
+| events
+| :white_check_mark:
+
+| exec
+| :white_check_mark:
+
+| export
+| :white_check_mark:
+
+| history
+| :white_check_mark:
+
+| images
+| :white_check_mark:
+
+| import
+| :white_check_mark:
+
+| info
+| :bug:
+
+| inspect
+| :white_check_mark:
+
+| kill
+| :white_check_mark:
+
+| load
+| :bug:
+
+| login
+| :white_check_mark:
+
+| logout
+| :white_check_mark:
+
+| logs
+| :white_check_mark:
+
+| pause
+| :x:
+
+| port
+| :white_check_mark:
+
+| ps
+| :white_check_mark:
+
+| pull
+| :white_check_mark:
+
+| push
+| :white_check_mark:
+
+| rename
+| :white_check_mark:
+
+| restart
+| :white_check_mark:
+
+| rm
+| :white_check_mark:
+
+| rmi
+| :white_check_mark:
+
+| run
+| :white_check_mark:
+
+| save
+| :white_check_mark:
+
+| search
+| :white_check_mark:
+
+| start
+| :white_check_mark:
+
+| stats
+| :bug:
+
+| stop
+| :white_check_mark:
+
+| tag
+| :white_check_mark:
+
+| top
+| :white_check_mark:
+
+| unpause
+| :x:
+
+| version
+| :white_check_mark:
+
+| wait
+| :white_check_mark:
+
+|===
+
+== Hacking
+
+To build on 11.1-RELEASE, assuming the <<prereqs>> have been installed:
+
+[source,bash]
+----
+AUTO_GOPATH=1 ./hack/make.sh binary
+----
+
+This should create the `docker` executable in `./bundles/latest/binary`.
+
+Please ensure that <<zfs, ZFS>> and <<networking, Networking>> are set up
+properly.
+
+=== Misc. Notes
+
+Running the 1.7.0 version of the daemon in debug mode:
+
+[source,bash]
+----
+sudo docker -d -e jail -s zfs -g /usr/docker -D
+----
+
+
+Running the 1.8.0 version of the daemon in debug mode:
+
+[source,bash]
+----
+sudo ./bundles/latest/binary/docker daemon -D -e jail -s zfs -g /usr/docker
+----
