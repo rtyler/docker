@@ -16,19 +16,17 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/vishvananda/netlink"
 
-	//"github.com/docker/docker/daemon/network"
-	//"github.com/docker/docker/daemon/networkdriver"
+	"github.com/docker/docker/daemon/network"
 
-	/// XXX: Moved into https://github.com/docker/libnetwork
-	//"github.com/docker/docker/daemon/networkdriver/ipallocator"
+	"github.com/docker/libnetwork/ipallocator"
+	"github.com/docker/libnetwork/netutils"
+
+	"github.com/opencontainers/runc/libcontainer/netlink"
+
 	"github.com/docker/docker/daemon/networkdriver/portmapper"
-	/// XXX: Moved into https://github.com/docker/libnetwork
-	//"github.com/docker/docker/nat"
+	"github.com/docker/docker/pkg/nat"
 
-	//"github.com/docker/docker/pkg/iptables"
-	//"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/libnetwork/resolvconf"
 )
 
@@ -152,14 +150,14 @@ func InitDriver(config *Config) error {
 		bridgeIface = DefaultNetworkBridge
 	}
 
-	addrv4, addrsv6, err := networkdriver.GetIfaceAddr(bridgeIface)
+	addrv4, addrsv6, err := netutils.GetIfaceAddr(bridgeIface)
 
   // FIXME: On FreeBSD the vnet driver is not very stable and requires kernel recompilation
   // so now we just using shared network interface, not the real bridge
 
 	if err != nil {
 		// No Bridge existent, create one
-		// If we're not using the default bridge, fail without trying to create it		
+		// If we're not using the default bridge, fail without trying to create it
 		if !usingDefaultBridge {
 		 	return err
 		}
@@ -172,7 +170,7 @@ func InitDriver(config *Config) error {
 			return err
 		}
 
-		addrv4, addrsv6, err = networkdriver.GetIfaceAddr(bridgeIface)
+		addrv4, addrsv6, err = netutils.GetIfaceAddr(bridgeIface)
 		if err != nil {
 			return err
 		}
@@ -210,7 +208,7 @@ func InitDriver(config *Config) error {
 				return err
 			}
 			// Recheck addresses now that IPv6 is setup on the bridge
-			addrv4, addrsv6, err = networkdriver.GetIfaceAddr(bridgeIface)			
+			addrv4, addrsv6, err = netutils.GetIfaceAddr(bridgeIface)
 
 			if err != nil {
 				return err
@@ -473,8 +471,8 @@ func configureBridge(bridgeIP string, bridgeIPv6 string, enableIPv6 bool) error 
 			if err != nil {
 				return err
 			}
-			if err := networkdriver.CheckNameserverOverlaps(nameservers, dockerNetwork); err == nil {
-				// FIXME: UGLY HACK netlink functions are not implemented for freebsd				
+			if err := netutils.CheckNameserverOverlaps(nameservers, dockerNetwork); err == nil {
+				// FIXME: UGLY HACK netlink functions are not implemented for freebsd
 				//if err := networkdriver.CheckRouteOverlaps(dockerNetwork); err == nil {
 					ifaceAddr = addr
 					break
@@ -743,10 +741,10 @@ func AllocatePort(id string, port nat.Port, binding nat.PortBinding) (nat.PortBi
 		network       = currentInterfaces.Get(id)
 	)
 
-	if binding.HostIp != "" {
-		ip = net.ParseIP(binding.HostIp)
+	if binding.HostIP != "" {
+		ip = net.ParseIP(binding.HostIP)
 		if ip == nil {
-			return nat.PortBinding{}, fmt.Errorf("Bad parameter: invalid host ip %s", binding.HostIp)
+			return nat.PortBinding{}, fmt.Errorf("Bad parameter: invalid host ip %s", binding.HostIP)
 		}
 	}
 
@@ -797,9 +795,9 @@ func AllocatePort(id string, port nat.Port, binding nat.PortBinding) (nat.PortBi
 
 	switch netAddr := host.(type) {
 	case *net.TCPAddr:
-		return nat.PortBinding{HostIp: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
+		return nat.PortBinding{HostIP: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
 	case *net.UDPAddr:
-		return nat.PortBinding{HostIp: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
+		return nat.PortBinding{HostIP: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
 	default:
 		return nat.PortBinding{}, fmt.Errorf("unsupported address type %T", netAddr)
 	}
