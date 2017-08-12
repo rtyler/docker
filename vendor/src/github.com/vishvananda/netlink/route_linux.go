@@ -8,6 +8,15 @@ import (
 	"github.com/vishvananda/netlink/nl"
 )
 
+const (
+	SCOPE_UNIVERSE Scope = syscall.RT_SCOPE_UNIVERSE
+	SCOPE_SITE     Scope = syscall.RT_SCOPE_SITE
+	SCOPE_LINK     Scope = syscall.RT_SCOPE_LINK
+	SCOPE_HOST     Scope = syscall.RT_SCOPE_HOST
+	SCOPE_NOWHERE  Scope = syscall.RT_SCOPE_NOWHERE
+)
+
+
 // RtAttr is shared so it is in netlink_linux.go
 
 // RouteAdd will add a route to the system.
