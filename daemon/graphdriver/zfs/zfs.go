@@ -12,7 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"runtime"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/daemon/graphdriver"
@@ -288,8 +287,9 @@ func (d *Driver) Get(id, mountLabel string) (string, error) {
 	options := label.FormatMountLabel("", mountLabel)
 	log.Debugf(`[zfs] mount("%s", "%s", "%s")`, filesystem, mountpoint, options)
 
-	if(d.mountedFs[filesystem] == 0) {
-		log.Debugf(`[zfs] mount("%s", "%s", "%s")`, filesystem, mountpoint, mountLabel)
+    if (d.mountedFs[filesystem] == 0) {
+        log.Debugf(`[zfs] mount("%s", "%s", "%s")`, filesystem, mountpoint, mountLabel)
+    }
 
 	err := mount.Mount(filesystem, mountpoint, "zfs", options)
 	if err != nil {
