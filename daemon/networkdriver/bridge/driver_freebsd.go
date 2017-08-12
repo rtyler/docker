@@ -16,15 +16,20 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/network"
-	"github.com/docker/docker/daemon/networkdriver"
-	"github.com/docker/docker/daemon/networkdriver/ipallocator"
+	"github.com/vishvananda/netlink"
+
+	//"github.com/docker/docker/daemon/network"
+	//"github.com/docker/docker/daemon/networkdriver"
+
+	/// XXX: Moved into https://github.com/docker/libnetwork
+	//"github.com/docker/docker/daemon/networkdriver/ipallocator"
 	"github.com/docker/docker/daemon/networkdriver/portmapper"
-	"github.com/docker/docker/nat"
+	/// XXX: Moved into https://github.com/docker/libnetwork
+	//"github.com/docker/docker/nat"
+
 	//"github.com/docker/docker/pkg/iptables"
 	//"github.com/docker/docker/pkg/parsers/kernel"
-	"github.com/docker/docker/pkg/resolvconf"
-	"github.com/docker/libcontainer/netlink"
+	"github.com/docker/libnetwork/resolvconf"
 )
 
 const (

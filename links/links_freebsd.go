@@ -7,9 +7,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/docker/docker/daemon/networkdriver/bridge"
-	"github.com/docker/docker/nat"
-	//"github.com/docker/docker/pkg/iptables"
+    "github.com/docker/docker/daemon/networkdriver/bridge"
+    /// XXX: Moved into https://github.com/docker/libnetwork
+    //"github.com/docker/docker/nat"
+    //"github.com/docker/docker/pkg/iptables"
 )
 
 type Link struct {

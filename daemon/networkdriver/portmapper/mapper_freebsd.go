@@ -9,7 +9,8 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/docker/daemon/networkdriver/portallocator"
+    /// XXX: Moved into https://github.com/docker/libnetwork
+	"github.com/docker/libnetwork/portallocator"
 	//"github.com/docker/docker/pkg/iptables"
 )
 
