@@ -289,7 +289,8 @@ type FlagSet struct {
 	// Usage is the function called when an error occurs while parsing flags.
 	// The field is a function (not a method) that may be changed to point to
 	// a custom error handler.
-	Usage func()
+	Usage      func()
+	ShortUsage func()
 
 	name             string
 	parsed           bool
@@ -511,6 +512,12 @@ func (f *FlagSet) PrintDefaults() {
 	if runtime.GOOS != "windows" && home == "/" {
 		home = ""
 	}
+
+	// Add a blank line between cmd description and list of options
+	if f.FlagCount() > 0 {
+		fmt.Fprintln(writer, "")
+	}
+
 	f.VisitAll(func(flag *Flag) {
 		format := "  -%s=%s"
 		names := []string{}
@@ -519,7 +526,7 @@ func (f *FlagSet) PrintDefaults() {
 				names = append(names, name)
 			}
 		}
-		if len(names) > 0 {
+		if len(names) > 0 && len(flag.Usage) > 0 {
 			val := flag.DefValue
 
 			if home != "" && strings.HasPrefix(val, home) {
@@ -562,6 +569,12 @@ func defaultUsage(f *FlagSet) {
 var Usage = func() {
 	fmt.Fprintf(CommandLine.Out(), "Usage of %s:\n", os.Args[0])
 	PrintDefaults()
+}
+
+// Usage prints to standard error a usage message documenting the standard command layout
+// The function is a variable that may be changed to point to a custom function.
+var ShortUsage = func() {
+	fmt.Fprintf(CommandLine.output, "Usage of %s:\n", os.Args[0])
 }
 
 // FlagCount returns the number of flags that have been defined.
@@ -1067,12 +1080,15 @@ func (cmd *FlagSet) ParseFlags(args []string, withHelp bool) error {
 		return err
 	}
 	if help != nil && *help {
+		cmd.SetOutput(os.Stdout)
 		cmd.Usage()
-		// just in case Usage does not exit
 		os.Exit(0)
 	}
 	if str := cmd.CheckArgs(); str != "" {
+		cmd.SetOutput(os.Stderr)
 		cmd.ReportError(str, withHelp)
+		cmd.ShortUsage()
+		os.Exit(1)
 	}
 	return nil
 }
@@ -1080,13 +1096,12 @@ func (cmd *FlagSet) ParseFlags(args []string, withHelp bool) error {
 func (cmd *FlagSet) ReportError(str string, withHelp bool) {
 	if withHelp {
 		if os.Args[0] == cmd.Name() {
-			str += ". See '" + os.Args[0] + " --help'"
+			str += ".\nSee '" + os.Args[0] + " --help'"
 		} else {
-			str += ". See '" + os.Args[0] + " " + cmd.Name() + " --help'"
+			str += ".\nSee '" + os.Args[0] + " " + cmd.Name() + " --help'"
 		}
 	}
-	fmt.Fprintf(cmd.Out(), "docker: %s\n", str)
-	os.Exit(1)
+	fmt.Fprintf(cmd.Out(), "docker: %s.\n", str)
 }
 
 // Parsed reports whether f.Parse has been called.
@@ -1127,4 +1142,54 @@ func NewFlagSet(name string, errorHandling ErrorHandling) *FlagSet {
 func (f *FlagSet) Init(name string, errorHandling ErrorHandling) {
 	f.name = name
 	f.errorHandling = errorHandling
+}
+
+type mergeVal struct {
+	Value
+	key  string
+	fset *FlagSet
+}
+
+func (v mergeVal) Set(s string) error {
+	return v.fset.Set(v.key, s)
+}
+
+func (v mergeVal) IsBoolFlag() bool {
+	if b, ok := v.Value.(boolFlag); ok {
+		return b.IsBoolFlag()
+	}
+	return false
+}
+
+func Merge(dest *FlagSet, flagsets ...*FlagSet) error {
+	for _, fset := range flagsets {
+		for k, f := range fset.formal {
+			if _, ok := dest.formal[k]; ok {
+				var err error
+				if fset.name == "" {
+					err = fmt.Errorf("flag redefined: %s", k)
+				} else {
+					err = fmt.Errorf("%s flag redefined: %s", fset.name, k)
+				}
+				fmt.Fprintln(fset.Out(), err.Error())
+				// Happens only if flags are declared with identical names
+				switch dest.errorHandling {
+				case ContinueOnError:
+					return err
+				case ExitOnError:
+					os.Exit(2)
+				case PanicOnError:
+					panic(err)
+				}
+			}
+			newF := *f
+			newF.Value = mergeVal{f.Value, k, fset}
+			dest.formal[k] = &newF
+		}
+	}
+	return nil
+}
+
+func (f *FlagSet) IsEmpty() bool {
+	return len(f.actual) == 0
 }

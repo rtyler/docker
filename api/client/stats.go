@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	Cli "github.com/docker/docker/cli"
 	flag "github.com/docker/docker/pkg/mflag"
 	"github.com/docker/docker/pkg/units"
 )
@@ -35,17 +36,20 @@ func (s *containerStats) Collect(cli *DockerCli, streamStats bool) {
 	} else {
 		v.Set("stream", "0")
 	}
-	stream, _, err := cli.call("GET", "/containers/"+s.Name+"/stats?"+v.Encode(), nil, nil)
+	serverResp, err := cli.call("GET", "/containers/"+s.Name+"/stats?"+v.Encode(), nil, nil)
 	if err != nil {
+		s.mu.Lock()
 		s.err = err
+		s.mu.Unlock()
 		return
 	}
-	defer stream.Close()
+
+	defer serverResp.body.Close()
+
 	var (
 		previousCPU    uint64
 		previousSystem uint64
-		start          = true
-		dec            = json.NewDecoder(stream)
+		dec            = json.NewDecoder(serverResp.body)
 		u              = make(chan error, 1)
 	)
 	go func() {
@@ -59,10 +63,9 @@ func (s *containerStats) Collect(cli *DockerCli, streamStats bool) {
 				memPercent = float64(v.MemoryStats.Usage) / float64(v.MemoryStats.Limit) * 100.0
 				cpuPercent = 0.0
 			)
-			if !start {
-				cpuPercent = calculateCPUPercent(previousCPU, previousSystem, v)
-			}
-			start = false
+			previousCPU = v.PreCpuStats.CpuUsage.TotalUsage
+			previousSystem = v.PreCpuStats.SystemUsage
+			cpuPercent = calculateCPUPercent(previousCPU, previousSystem, v)
 			s.mu.Lock()
 			s.CPUPercentage = cpuPercent
 			s.Memory = float64(v.MemoryStats.Usage)
@@ -71,8 +74,6 @@ func (s *containerStats) Collect(cli *DockerCli, streamStats bool) {
 			s.NetworkRx = float64(v.Network.RxBytes)
 			s.NetworkTx = float64(v.Network.TxBytes)
 			s.mu.Unlock()
-			previousCPU = v.CpuStats.CpuUsage.TotalUsage
-			previousSystem = v.CpuStats.SystemUsage
 			u <- nil
 			if !streamStats {
 				return
@@ -124,9 +125,10 @@ func (s *containerStats) Display(w io.Writer) error {
 //
 // Usage: docker stats CONTAINER [CONTAINER...]
 func (cli *DockerCli) CmdStats(args ...string) error {
-	cmd := cli.Subcmd("stats", "CONTAINER [CONTAINER...]", "Display a live stream of one or more containers' resource usage statistics", true)
+	cmd := Cli.Subcmd("stats", []string{"CONTAINER [CONTAINER...]"}, "Display a live stream of one or more containers' resource usage statistics", true)
 	noStream := cmd.Bool([]string{"-no-stream"}, false, "Disable streaming stats and only pull the first result")
 	cmd.Require(flag.Min, 1)
+
 	cmd.ParseFlags(args, true)
 
 	names := cmd.Args()
@@ -149,7 +151,7 @@ func (cli *DockerCli) CmdStats(args ...string) error {
 	}
 	// do a quick pause so that any failed connections for containers that do not exist are able to be
 	// evicted before we display the initial or default values.
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 	var errs []string
 	for _, c := range cStats {
 		c.mu.Lock()

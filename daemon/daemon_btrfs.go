@@ -1,4 +1,4 @@
-// +build !exclude_graphdriver_btrfs, +build !freebsd
+// +build !exclude_graphdriver_btrfs,linux, +build !freebsd
 
 package daemon
 

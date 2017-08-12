@@ -9,11 +9,12 @@ import (
 	"syscall"
 
 	"github.com/docker/docker/daemon/execdriver"
-	"github.com/docker/libcontainer"
-	_ "github.com/docker/libcontainer/nsenter"
-	"github.com/docker/libcontainer/utils"
+	"github.com/opencontainers/runc/libcontainer"
+	_ "github.com/opencontainers/runc/libcontainer/nsenter"
+	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
+// TODO(vishh): Add support for running in privileged mode.
 func (d *driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessConfig, pipes *execdriver.Pipes, startCallback execdriver.StartCallback) (int, error) {
 	active := d.activeContainers[c.ID]
 	if active == nil {
@@ -25,10 +26,6 @@ func (d *driver) Exec(c *execdriver.Command, processConfig *execdriver.ProcessCo
 		Env:  c.ProcessConfig.Env,
 		Cwd:  c.WorkingDir,
 		User: processConfig.User,
-	}
-
-	if processConfig.Privileged {
-		p.Capabilities = execdriver.GetAllCapabilities()
 	}
 
 	config := active.Config()

@@ -6,107 +6,26 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/cliconfig"
-	"github.com/docker/docker/pkg/requestdecorator"
 )
 
-type RequestAuthorization struct {
-	authConfig       *cliconfig.AuthConfig
-	registryEndpoint *Endpoint
-	resource         string
-	scope            string
-	actions          []string
-
-	tokenLock       sync.Mutex
-	tokenCache      string
-	tokenExpiration time.Time
-}
-
-func NewRequestAuthorization(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, resource, scope string, actions []string) *RequestAuthorization {
-	return &RequestAuthorization{
-		authConfig:       authConfig,
-		registryEndpoint: registryEndpoint,
-		resource:         resource,
-		scope:            scope,
-		actions:          actions,
-	}
-}
-
-func (auth *RequestAuthorization) getToken() (string, error) {
-	auth.tokenLock.Lock()
-	defer auth.tokenLock.Unlock()
-	now := time.Now()
-	if now.Before(auth.tokenExpiration) {
-		logrus.Debugf("Using cached token for %s", auth.authConfig.Username)
-		return auth.tokenCache, nil
-	}
-
-	client := auth.registryEndpoint.HTTPClient()
-	factory := HTTPRequestFactory(nil)
-
-	for _, challenge := range auth.registryEndpoint.AuthChallenges {
-		switch strings.ToLower(challenge.Scheme) {
-		case "basic":
-			// no token necessary
-		case "bearer":
-			logrus.Debugf("Getting bearer token with %s for %s", challenge.Parameters, auth.authConfig.Username)
-			params := map[string]string{}
-			for k, v := range challenge.Parameters {
-				params[k] = v
-			}
-			params["scope"] = fmt.Sprintf("%s:%s:%s", auth.resource, auth.scope, strings.Join(auth.actions, ","))
-			token, err := getToken(auth.authConfig.Username, auth.authConfig.Password, params, auth.registryEndpoint, client, factory)
-			if err != nil {
-				return "", err
-			}
-			auth.tokenCache = token
-			auth.tokenExpiration = now.Add(time.Minute)
-
-			return token, nil
-		default:
-			logrus.Infof("Unsupported auth scheme: %q", challenge.Scheme)
-		}
-	}
-
-	// Do not expire cache since there are no challenges which use a token
-	auth.tokenExpiration = time.Now().Add(time.Hour * 24)
-
-	return "", nil
-}
-
-func (auth *RequestAuthorization) Authorize(req *http.Request) error {
-	token, err := auth.getToken()
-	if err != nil {
-		return err
-	}
-	if token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	} else if auth.authConfig.Username != "" && auth.authConfig.Password != "" {
-		req.SetBasicAuth(auth.authConfig.Username, auth.authConfig.Password)
-	}
-	return nil
-}
-
 // Login tries to register/login to the registry server.
-func Login(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, factory *requestdecorator.RequestFactory) (string, error) {
+func Login(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint) (string, error) {
 	// Separates the v2 registry login logic from the v1 logic.
 	if registryEndpoint.Version == APIVersion2 {
-		return loginV2(authConfig, registryEndpoint, factory)
+		return loginV2(authConfig, registryEndpoint, "" /* scope */)
 	}
-	return loginV1(authConfig, registryEndpoint, factory)
+	return loginV1(authConfig, registryEndpoint)
 }
 
 // loginV1 tries to register/login to the v1 registry server.
-func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, factory *requestdecorator.RequestFactory) (string, error) {
+func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint) (string, error) {
 	var (
 		status        string
 		reqBody       []byte
 		err           error
-		client        = registryEndpoint.HTTPClient()
 		reqStatusCode = 0
 		serverAddress = authConfig.ServerAddress
 	)
@@ -117,7 +36,7 @@ func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 		return "", fmt.Errorf("Server Error: Server Address not set.")
 	}
 
-	loginAgainstOfficialIndex := serverAddress == IndexServerAddress()
+	loginAgainstOfficialIndex := serverAddress == IndexServer
 
 	// to avoid sending the server address to the server it should be removed before being marshalled
 	authCopy := *authConfig
@@ -130,7 +49,7 @@ func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 
 	// using `bytes.NewReader(jsonBody)` here causes the server to respond with a 411 status.
 	b := strings.NewReader(string(jsonBody))
-	req1, err := client.Post(serverAddress+"users/", "application/json; charset=utf-8", b)
+	req1, err := registryEndpoint.client.Post(serverAddress+"users/", "application/json; charset=utf-8", b)
 	if err != nil {
 		return "", fmt.Errorf("Server Error: %s", err)
 	}
@@ -151,9 +70,9 @@ func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 		}
 	} else if reqStatusCode == 400 {
 		if string(reqBody) == "\"Username or email already exists\"" {
-			req, err := factory.NewRequest("GET", serverAddress+"users/", nil)
+			req, err := http.NewRequest("GET", serverAddress+"users/", nil)
 			req.SetBasicAuth(authConfig.Username, authConfig.Password)
-			resp, err := client.Do(req)
+			resp, err := registryEndpoint.client.Do(req)
 			if err != nil {
 				return "", err
 			}
@@ -172,6 +91,9 @@ func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 				}
 				// *TODO: Use registry configuration to determine what this says, if anything?
 				return "", fmt.Errorf("Login: Account is not Active. Please see the documentation of the registry %s for instructions how to activate it.", serverAddress)
+			} else if resp.StatusCode == 500 { // Issue #14326
+				logrus.Errorf("%s returned status code %d. Response Body :\n%s", req.URL.String(), resp.StatusCode, body)
+				return "", fmt.Errorf("Internal Server Error")
 			}
 			return "", fmt.Errorf("Login: %s (Code: %d; Headers: %s)", body, resp.StatusCode, resp.Header)
 		}
@@ -180,9 +102,9 @@ func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 	} else if reqStatusCode == 401 {
 		// This case would happen with private registries where /v1/users is
 		// protected, so people can use `docker login` as an auth check.
-		req, err := factory.NewRequest("GET", serverAddress+"users/", nil)
+		req, err := http.NewRequest("GET", serverAddress+"users/", nil)
 		req.SetBasicAuth(authConfig.Username, authConfig.Password)
-		resp, err := client.Do(req)
+		resp, err := registryEndpoint.client.Do(req)
 		if err != nil {
 			return "", err
 		}
@@ -214,22 +136,26 @@ func loginV1(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 // now, users should create their account through other means like directly from a web page
 // served by the v2 registry service provider. Whether this will be supported in the future
 // is to be determined.
-func loginV2(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, factory *requestdecorator.RequestFactory) (string, error) {
+func loginV2(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, scope string) (string, error) {
 	logrus.Debugf("attempting v2 login to registry endpoint %s", registryEndpoint)
 	var (
 		err       error
 		allErrors []error
-		client    = registryEndpoint.HTTPClient()
 	)
 
 	for _, challenge := range registryEndpoint.AuthChallenges {
-		logrus.Debugf("trying %q auth challenge with params %s", challenge.Scheme, challenge.Parameters)
+		params := make(map[string]string, len(challenge.Parameters)+1)
+		for k, v := range challenge.Parameters {
+			params[k] = v
+		}
+		params["scope"] = scope
+		logrus.Debugf("trying %q auth challenge with params %v", challenge.Scheme, params)
 
 		switch strings.ToLower(challenge.Scheme) {
 		case "basic":
-			err = tryV2BasicAuthLogin(authConfig, challenge.Parameters, registryEndpoint, client, factory)
+			err = tryV2BasicAuthLogin(authConfig, params, registryEndpoint)
 		case "bearer":
-			err = tryV2TokenAuthLogin(authConfig, challenge.Parameters, registryEndpoint, client, factory)
+			err = tryV2TokenAuthLogin(authConfig, params, registryEndpoint)
 		default:
 			// Unsupported challenge types are explicitly skipped.
 			err = fmt.Errorf("unsupported auth scheme: %q", challenge.Scheme)
@@ -247,15 +173,15 @@ func loginV2(authConfig *cliconfig.AuthConfig, registryEndpoint *Endpoint, facto
 	return "", fmt.Errorf("no successful auth challenge for %s - errors: %s", registryEndpoint, allErrors)
 }
 
-func tryV2BasicAuthLogin(authConfig *cliconfig.AuthConfig, params map[string]string, registryEndpoint *Endpoint, client *http.Client, factory *requestdecorator.RequestFactory) error {
-	req, err := factory.NewRequest("GET", registryEndpoint.Path(""), nil)
+func tryV2BasicAuthLogin(authConfig *cliconfig.AuthConfig, params map[string]string, registryEndpoint *Endpoint) error {
+	req, err := http.NewRequest("GET", registryEndpoint.Path(""), nil)
 	if err != nil {
 		return err
 	}
 
 	req.SetBasicAuth(authConfig.Username, authConfig.Password)
 
-	resp, err := client.Do(req)
+	resp, err := registryEndpoint.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -268,20 +194,20 @@ func tryV2BasicAuthLogin(authConfig *cliconfig.AuthConfig, params map[string]str
 	return nil
 }
 
-func tryV2TokenAuthLogin(authConfig *cliconfig.AuthConfig, params map[string]string, registryEndpoint *Endpoint, client *http.Client, factory *requestdecorator.RequestFactory) error {
-	token, err := getToken(authConfig.Username, authConfig.Password, params, registryEndpoint, client, factory)
+func tryV2TokenAuthLogin(authConfig *cliconfig.AuthConfig, params map[string]string, registryEndpoint *Endpoint) error {
+	token, err := getToken(authConfig.Username, authConfig.Password, params, registryEndpoint)
 	if err != nil {
 		return err
 	}
 
-	req, err := factory.NewRequest("GET", registryEndpoint.Path(""), nil)
+	req, err := http.NewRequest("GET", registryEndpoint.Path(""), nil)
 	if err != nil {
 		return err
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
-	resp, err := client.Do(req)
+	resp, err := registryEndpoint.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -294,7 +220,7 @@ func tryV2TokenAuthLogin(authConfig *cliconfig.AuthConfig, params map[string]str
 	return nil
 }
 
-// this method matches a auth configuration to a server address or a url
+// ResolveAuthConfig matches an auth configuration to a server address or a URL
 func ResolveAuthConfig(config *cliconfig.ConfigFile, index *IndexInfo) cliconfig.AuthConfig {
 	configKey := index.GetAuthConfigKey()
 	// First try the happy case

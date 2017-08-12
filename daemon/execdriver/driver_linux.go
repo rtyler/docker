@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/docker/docker/daemon/execdriver/native/template"
-	"github.com/docker/libcontainer"
-	"github.com/docker/libcontainer/cgroups/fs"
-	"github.com/docker/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer"
+	"github.com/opencontainers/runc/libcontainer/cgroups/fs"
+	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
 func InitContainer(c *Command) *configs.Config {
@@ -24,6 +24,7 @@ func InitContainer(c *Command) *configs.Config {
 	container.Devices = c.AutoCreatedDevices
 	container.Rootfs = c.Rootfs
 	container.Readonlyfs = c.ReadonlyRootfs
+	container.Privatefs = true
 
 	// check to see if we are running in ramdisk to disable pivot root
 	container.NoPivotRoot = os.Getenv("DOCKER_RAMDISK") != ""
@@ -37,7 +38,7 @@ func InitContainer(c *Command) *configs.Config {
 
 func getEnv(key string, env []string) string {
 	for _, pair := range env {
-		parts := strings.Split(pair, "=")
+		parts := strings.SplitN(pair, "=", 2)
 		if parts[0] == key {
 			return parts[1]
 		}
@@ -57,6 +58,7 @@ func SetupCgroups(container *configs.Config, c *Command) error {
 		container.Cgroups.CpuQuota = c.Resources.CpuQuota
 		container.Cgroups.BlkioWeight = c.Resources.BlkioWeight
 		container.Cgroups.OomKillDisable = c.Resources.OomKillDisable
+		container.Cgroups.MemorySwappiness = c.Resources.MemorySwappiness
 	}
 
 	return nil

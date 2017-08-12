@@ -1,7 +1,5 @@
 #!/bin/bash
 
-DEST=$1
-
 PKGVERSION="${VERSION//-/'~'}"
 # if we have a "-dev" suffix or have change in Git, let's make this package version more complex so it works better
 if [[ "$VERSION" == *-dev ]] || [ -n "$(git status --porcelain)" ]; then
@@ -37,7 +35,7 @@ PACKAGE_LICENSE="Apache-2.0"
 # Build docker as an ubuntu package using FPM and REPREPRO (sue me).
 # bundle_binary must be called first.
 bundle_ubuntu() {
-	DIR=$DEST/build
+	DIR="$ABS_DEST/build"
 
 	# Include our udev rules
 	mkdir -p "$DIR/etc/udev/rules.d"
@@ -62,10 +60,10 @@ bundle_ubuntu() {
 	cp contrib/completion/fish/docker.fish "$DIR/etc/fish/completions/"
 
 	# Include contributed man pages
-	docs/man/md2man-all.sh -q
+	man/md2man-all.sh -q
 	manRoot="$DIR/usr/share/man"
 	mkdir -p "$manRoot"
-	for manDir in docs/man/man?; do
+	for manDir in man/man?; do
 		manBase="$(basename "$manDir")" # "man1"
 		for manFile in "$manDir"/*; do
 			manName="$(basename "$manFile")" # "docker-build.1"
@@ -140,9 +138,9 @@ EOF
 		# create lxc-docker-VERSION package
 		fpm -s dir -C "$DIR" \
 			--name "lxc-docker-$VERSION" --version "$PKGVERSION" \
-			--after-install "$DEST/postinst" \
-			--before-remove "$DEST/prerm" \
-			--after-remove "$DEST/postrm" \
+			--after-install "$ABS_DEST/postinst" \
+			--before-remove "$ABS_DEST/prerm" \
+			--after-remove "$ABS_DEST/postrm" \
 			--architecture "$PACKAGE_ARCHITECTURE" \
 			--prefix / \
 			--depends iptables \
@@ -151,6 +149,7 @@ EOF
 			--deb-recommends git \
 			--deb-recommends xz-utils \
 			--deb-recommends 'cgroupfs-mount | cgroup-lite' \
+			--deb-suggests apparmor \
 			--description "$PACKAGE_DESCRIPTION" \
 			--maintainer "$PACKAGE_MAINTAINER" \
 			--conflicts docker \

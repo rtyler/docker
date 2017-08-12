@@ -10,10 +10,10 @@ import (
 	"syscall"
 
 	"github.com/docker/docker/daemon/execdriver"
-	"github.com/docker/libcontainer/apparmor"
-	"github.com/docker/libcontainer/configs"
-	"github.com/docker/libcontainer/devices"
-	"github.com/docker/libcontainer/utils"
+	"github.com/opencontainers/runc/libcontainer/apparmor"
+	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/devices"
+	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
 // createContainer populates and configures the container type with the
@@ -38,13 +38,23 @@ func (d *driver) createContainer(c *execdriver.Command) (*configs.Config, error)
 	}
 
 	if c.ProcessConfig.Privileged {
-		// clear readonly for /sys
+		if !container.Readonlyfs {
+			// clear readonly for /sys
+			for i := range container.Mounts {
+				if container.Mounts[i].Destination == "/sys" {
+					container.Mounts[i].Flags &= ^syscall.MS_RDONLY
+				}
+			}
+			container.ReadonlyPaths = nil
+		}
+
+		// clear readonly for cgroup
 		for i := range container.Mounts {
-			if container.Mounts[i].Destination == "/sys" {
+			if container.Mounts[i].Device == "cgroup" {
 				container.Mounts[i].Flags &= ^syscall.MS_RDONLY
 			}
 		}
-		container.ReadonlyPaths = nil
+
 		container.MaskPaths = nil
 		if err := d.setPrivileged(container); err != nil {
 			return nil, err
@@ -55,12 +65,27 @@ func (d *driver) createContainer(c *execdriver.Command) (*configs.Config, error)
 		}
 	}
 
+	container.AdditionalGroups = c.GroupAdd
+
 	if c.AppArmorProfile != "" {
 		container.AppArmorProfile = c.AppArmorProfile
 	}
 
 	if err := execdriver.SetupCgroups(container, c); err != nil {
 		return nil, err
+	}
+
+	if container.Readonlyfs {
+		for i := range container.Mounts {
+			switch container.Mounts[i].Destination {
+			case "/proc", "/dev", "/dev/pts":
+				continue
+			}
+			container.Mounts[i].Flags |= syscall.MS_RDONLY
+		}
+
+		/* These paths must be remounted as r/o */
+		container.ReadonlyPaths = append(container.ReadonlyPaths, "/dev")
 	}
 
 	if err := d.setupMounts(container, c); err != nil {
@@ -89,40 +114,9 @@ func generateIfaceName() (string, error) {
 }
 
 func (d *driver) createNetwork(container *configs.Config, c *execdriver.Command) error {
-	if c.Network.HostNetworking {
-		container.Namespaces.Remove(configs.NEWNET)
+	if c.Network == nil {
 		return nil
 	}
-
-	container.Networks = []*configs.Network{
-		{
-			Type: "loopback",
-		},
-	}
-
-	iName, err := generateIfaceName()
-	if err != nil {
-		return err
-	}
-	if c.Network.Interface != nil {
-		vethNetwork := configs.Network{
-			Name:              "eth0",
-			HostInterfaceName: iName,
-			Mtu:               c.Network.Mtu,
-			Address:           fmt.Sprintf("%s/%d", c.Network.Interface.IPAddress, c.Network.Interface.IPPrefixLen),
-			MacAddress:        c.Network.Interface.MacAddress,
-			Gateway:           c.Network.Interface.Gateway,
-			Type:              "veth",
-			Bridge:            c.Network.Interface.Bridge,
-			HairpinMode:       c.Network.Interface.HairpinMode,
-		}
-		if c.Network.Interface.GlobalIPv6Address != "" {
-			vethNetwork.IPv6Address = fmt.Sprintf("%s/%d", c.Network.Interface.GlobalIPv6Address, c.Network.Interface.GlobalIPv6PrefixLen)
-			vethNetwork.IPv6Gateway = c.Network.Interface.IPv6Gateway
-		}
-		container.Networks = append(container.Networks, &vethNetwork)
-	}
-
 	if c.Network.ContainerID != "" {
 		d.Lock()
 		active := d.activeContainers[c.Network.ContainerID]
@@ -138,8 +132,14 @@ func (d *driver) createNetwork(container *configs.Config, c *execdriver.Command)
 		}
 
 		container.Namespaces.Add(configs.NEWNET, state.NamespacePaths[configs.NEWNET])
+		return nil
 	}
 
+	if c.Network.NamespacePath == "" {
+		return fmt.Errorf("network namespace path is empty")
+	}
+
+	container.Namespaces.Add(configs.NEWNET, c.Network.NamespacePath)
 	return nil
 }
 
@@ -200,7 +200,6 @@ func (d *driver) setPrivileged(container *configs.Config) (err error) {
 	if apparmor.IsEnabled() {
 		container.AppArmorProfile = "unconfined"
 	}
-
 	return nil
 }
 

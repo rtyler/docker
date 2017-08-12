@@ -2,11 +2,12 @@ Name: docker-engine
 Version: %{_version}
 Release: %{_release}%{?dist}
 Summary: The open-source application container engine
+Group: Tools/Docker
 
 License: ASL 2.0
 Source: %{name}.tar.gz
 
-URL: https://dockerproject.com
+URL: https://dockerproject.org
 Vendor: Docker
 Packager: Docker <support@docker.com>
 
@@ -36,15 +37,17 @@ Requires(preun): initscripts
 # required packages on install
 Requires: /bin/sh
 Requires: iptables
-Requires: libc.so.6
 Requires: libcgroup
-Requires: libpthread.so.0
-Requires: libsqlite3.so.0
 Requires: tar
 Requires: xz
 %if 0%{?fedora} >= 21
 # Resolves: rhbz#1165615
 Requires: device-mapper-libs >= 1.02.90-1
+%endif
+%if 0%{?oraclelinux} == 6
+# Require Oracle Unbreakable Enterprise Kernel R3 and newer device-mapper
+Requires: kernel-uek >= 3.8
+Requires: device-mapper >= 1.02.90-2
 %endif
 
 # conflicting packages
@@ -71,7 +74,7 @@ depending on a particular stack or provider.
 
 %build
 ./hack/make.sh dynbinary
-# ./docs/man/md2man-all.sh runs outside the build container (if at all), since we don't have go-md2man here
+# ./man/md2man-all.sh runs outside the build container (if at all), since we don't have go-md2man here
 
 %check
 ./bundles/%{_origversion}/dynbinary/docker -v
@@ -113,9 +116,9 @@ install -p -m 644 contrib/completion/fish/docker.fish $RPM_BUILD_ROOT/usr/share/
 
 # install manpages
 install -d %{buildroot}%{_mandir}/man1
-install -p -m 644 docs/man/man1/*.1 $RPM_BUILD_ROOT/%{_mandir}/man1
+install -p -m 644 man/man1/*.1 $RPM_BUILD_ROOT/%{_mandir}/man1
 install -d %{buildroot}%{_mandir}/man5
-install -p -m 644 docs/man/man5/*.5 $RPM_BUILD_ROOT/%{_mandir}/man5
+install -p -m 644 man/man5/*.5 $RPM_BUILD_ROOT/%{_mandir}/man5
 
 # add vimfiles
 install -d $RPM_BUILD_ROOT/usr/share/vim/vimfiles/doc
