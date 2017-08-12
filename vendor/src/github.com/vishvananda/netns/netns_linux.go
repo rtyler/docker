@@ -1,5 +1,3 @@
-// +build linux
-
 package netns
 
 import (
@@ -52,30 +50,33 @@ func Get() (NsHandle, error) {
 	return GetFromThread(os.Getpid(), syscall.Gettid())
 }
 
-// GetFromPath gets a handle to a network namespace
-// identified by the path
-func GetFromPath(path string) (NsHandle, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY, 0)
+// GetFromName gets a handle to a named network namespace such as one
+// created by `ip netns add`.
+func GetFromName(name string) (NsHandle, error) {
+	fd, err := syscall.Open(fmt.Sprintf("/var/run/netns/%s", name), syscall.O_RDONLY, 0)
 	if err != nil {
 		return -1, err
 	}
 	return NsHandle(fd), nil
 }
 
-// GetFromName gets a handle to a named network namespace such as one
-// created by `ip netns add`.
-func GetFromName(name string) (NsHandle, error) {
-	return GetFromPath(fmt.Sprintf("/var/run/netns/%s", name))
-}
-
 // GetFromPid gets a handle to the network namespace of a given pid.
 func GetFromPid(pid int) (NsHandle, error) {
-	return GetFromPath(fmt.Sprintf("/proc/%d/ns/net", pid))
+	fd, err := syscall.Open(fmt.Sprintf("/proc/%d/ns/net", pid), syscall.O_RDONLY, 0)
+	if err != nil {
+		return -1, err
+	}
+	return NsHandle(fd), nil
 }
 
 // GetFromThread gets a handle to the network namespace of a given pid and tid.
 func GetFromThread(pid, tid int) (NsHandle, error) {
-	return GetFromPath(fmt.Sprintf("/proc/%d/task/%d/ns/net", pid, tid))
+	name := fmt.Sprintf("/proc/%d/task/%d/ns/net", pid, tid)
+	fd, err := syscall.Open(name, syscall.O_RDONLY, 0)
+	if err != nil {
+		return -1, err
+	}
+	return NsHandle(fd), nil
 }
 
 // GetFromDocker gets a handle to the network namespace of a docker container.
