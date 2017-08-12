@@ -5,7 +5,7 @@ the Docker project.
 
 ### CI
 
-The Docker project uses [Jenkins](https://jenkins.dockerproject.com/) as our
+The Docker project uses [Jenkins](https://jenkins.dockerproject.org/) as our
 continuous integration server. Each Pull Request to Docker is tested by running the 
 equivalent of `make all`. We chose Jenkins because we can host it ourselves and
 we run Docker in Docker to test.
@@ -22,7 +22,7 @@ pull request using GitHub's
 with pending, success, failure, or error statuses.
 
 The leeroy repository is maintained at
-[github.com/jfrazelle/leeroy](https://github.com/jfrazelle/leeroy).
+[github.com/docker/leeroy](https://github.com/docker/leeroy).
 
 #### GordonTheTurtle IRC Bot
 

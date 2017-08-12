@@ -2,15 +2,10 @@ package daemon
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/runconfig"
 )
-
-type ContainerJSONRaw struct {
-	*Container
-	HostConfig *runconfig.HostConfig
-}
 
 func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error) {
 	container, err := daemon.Get(name)
@@ -21,6 +16,59 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 	container.Lock()
 	defer container.Unlock()
 
+	base, err := daemon.getInspectData(container)
+	if err != nil {
+		return nil, err
+	}
+
+	mountPoints := make([]types.MountPoint, 0, len(container.MountPoints))
+	for _, m := range container.MountPoints {
+		mountPoints = append(mountPoints, types.MountPoint{
+			Name:        m.Name,
+			Source:      m.Path(),
+			Destination: m.Destination,
+			Driver:      m.Driver,
+			Mode:        m.Relabel,
+			RW:          m.RW,
+		})
+	}
+
+	return &types.ContainerJSON{base, mountPoints, container.Config}, nil
+}
+
+func (daemon *Daemon) ContainerInspectPre120(name string) (*types.ContainerJSONPre120, error) {
+	container, err := daemon.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	container.Lock()
+	defer container.Unlock()
+
+	base, err := daemon.getInspectData(container)
+	if err != nil {
+		return nil, err
+	}
+
+	volumes := make(map[string]string)
+	volumesRW := make(map[string]bool)
+	for _, m := range container.MountPoints {
+		volumes[m.Destination] = m.Path()
+		volumesRW[m.Destination] = m.RW
+	}
+
+	config := &types.ContainerConfig{
+		container.Config,
+		container.hostConfig.Memory,
+		container.hostConfig.MemorySwap,
+		container.hostConfig.CpuShares,
+		container.hostConfig.CpusetCpus,
+	}
+
+	return &types.ContainerJSONPre120{base, volumes, volumesRW, config}, nil
+}
+
+func (daemon *Daemon) getInspectData(container *Container) (*types.ContainerJSONBase, error) {
 	// make a copy to play with
 	hostConfig := *container.hostConfig
 
@@ -44,16 +92,15 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 		Pid:        container.State.Pid,
 		ExitCode:   container.State.ExitCode,
 		Error:      container.State.Error,
-		StartedAt:  container.State.StartedAt,
-		FinishedAt: container.State.FinishedAt,
+		StartedAt:  container.State.StartedAt.Format(time.RFC3339Nano),
+		FinishedAt: container.State.FinishedAt.Format(time.RFC3339Nano),
 	}
 
-	contJSON := &types.ContainerJSON{
+	contJSONBase := &types.ContainerJSONBase{
 		Id:              container.ID,
-		Created:         container.Created,
+		Created:         container.Created.Format(time.RFC3339Nano),
 		Path:            container.Path,
 		Args:            container.Args,
-		Config:          container.Config,
 		State:           containerState,
 		Image:           container.ImageID,
 		NetworkSettings: container.NetworkSettings,
@@ -67,14 +114,19 @@ func (daemon *Daemon) ContainerInspect(name string) (*types.ContainerJSON, error
 		ExecDriver:      container.ExecDriver,
 		MountLabel:      container.MountLabel,
 		ProcessLabel:    container.ProcessLabel,
-		Volumes:         container.Volumes,
-		VolumesRW:       container.VolumesRW,
 		AppArmorProfile: container.AppArmorProfile,
 		ExecIDs:         container.GetExecIDs(),
 		HostConfig:      &hostConfig,
 	}
 
-	return contJSON, nil
+	contJSONBase.GraphDriver.Name = container.Driver
+	graphDriverData, err := daemon.driver.GetMetadata(container.ID)
+	if err != nil {
+		return nil, err
+	}
+	contJSONBase.GraphDriver.Data = graphDriverData
+
+	return contJSONBase, nil
 }
 
 func (daemon *Daemon) ContainerExecInspect(id string) (*execConfig, error) {
@@ -82,6 +134,5 @@ func (daemon *Daemon) ContainerExecInspect(id string) (*execConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return eConfig, nil
 }

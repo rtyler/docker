@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path"
@@ -42,7 +40,7 @@ func processExitCode(err error) (exitCode int) {
 	return
 }
 
-func IsKilled(err error) bool {
+func isKilled(err error) bool {
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		status, ok := exitErr.Sys().(syscall.WaitStatus)
 		if !ok {
@@ -115,13 +113,13 @@ func runCommandWithOutputForDuration(cmd *exec.Cmd, duration time.Duration) (out
 	return
 }
 
-var ErrCmdTimeout = fmt.Errorf("command timed out")
+var errCmdTimeout = fmt.Errorf("command timed out")
 
 func runCommandWithOutputAndTimeout(cmd *exec.Cmd, timeout time.Duration) (output string, exitCode int, err error) {
 	var timedOut bool
 	output, exitCode, timedOut, err = runCommandWithOutputForDuration(cmd, timeout)
 	if timedOut {
-		err = ErrCmdTimeout
+		err = errCmdTimeout
 	}
 	return
 }
@@ -254,7 +252,7 @@ func compareDirectoryEntries(e1 []os.FileInfo, e2 []os.FileInfo) error {
 	return nil
 }
 
-func ListTar(f io.Reader) ([]string, error) {
+func listTar(f io.Reader) ([]string, error) {
 	tr := tar.NewReader(f)
 	var entries []string
 
@@ -269,30 +267,6 @@ func ListTar(f io.Reader) ([]string, error) {
 		}
 		entries = append(entries, th.Name)
 	}
-}
-
-type FileServer struct {
-	*httptest.Server
-}
-
-func fileServer(files map[string]string) (*FileServer, error) {
-	var handler http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
-		if filePath, found := files[r.URL.Path]; found {
-			http.ServeFile(w, r, filePath)
-		} else {
-			http.Error(w, http.StatusText(404), 404)
-		}
-	}
-
-	for _, file := range files {
-		if _, err := os.Stat(file); err != nil {
-			return nil, err
-		}
-	}
-	server := httptest.NewServer(handler)
-	return &FileServer{
-		Server: server,
-	}, nil
 }
 
 // randomUnixTmpDirPath provides a temporary unix path with rand string appended.
@@ -336,4 +310,41 @@ func parseCgroupPaths(procCgroupData string) map[string]string {
 		cgroupPaths[parts[1]] = parts[2]
 	}
 	return cgroupPaths
+}
+
+type channelBuffer struct {
+	c chan []byte
+}
+
+func (c *channelBuffer) Write(b []byte) (int, error) {
+	c.c <- b
+	return len(b), nil
+}
+
+func (c *channelBuffer) Close() error {
+	close(c.c)
+	return nil
+}
+
+func (c *channelBuffer) ReadTimeout(p []byte, n time.Duration) (int, error) {
+	select {
+	case b := <-c.c:
+		return copy(p[0:], b), nil
+	case <-time.After(n):
+		return -1, fmt.Errorf("timeout reading from channel")
+	}
+}
+
+func runAtDifferentDate(date time.Time, block func()) {
+	// Layout for date. MMDDhhmmYYYY
+	const timeLayout = "010203042006"
+	// Ensure we bring time back to now
+	now := time.Now().Format(timeLayout)
+	dateReset := exec.Command("date", now)
+	defer runCommand(dateReset)
+
+	dateChange := exec.Command("date", date.Format(timeLayout))
+	runCommand(dateChange)
+	block()
+	return
 }

@@ -1,4 +1,4 @@
-// +build !exclude_graphdriver_devicemapper, +build !freebsd
+// +build !exclude_graphdriver_devicemapper,linux, +build !freebsd
 
 package daemon
 

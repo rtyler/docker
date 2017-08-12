@@ -1,19 +1,31 @@
 package network
 
-import "github.com/docker/docker/nat"
+import "github.com/docker/docker/pkg/nat"
 
+// Address represents an IP address
+type Address struct {
+	Addr      string
+	PrefixLen int
+}
+
+// Settings stores configuration details about the daemon network config
 type Settings struct {
-	IPAddress              string
-	IPPrefixLen            int
-	MacAddress             string
-	LinkLocalIPv6Address   string
-	LinkLocalIPv6PrefixLen int
+	Bridge                 string
+	EndpointID             string
+	Gateway                string
 	GlobalIPv6Address      string
 	GlobalIPv6PrefixLen    int
-	Gateway                string
+	HairpinMode            bool
+	IPAddress              string
+	IPPrefixLen            int
 	IPv6Gateway            string
-	Bridge                 string
+	LinkLocalIPv6Address   string
+	LinkLocalIPv6PrefixLen int
+	MacAddress             string
+	NetworkID              string
 	PortMapping            map[string]map[string]string // Deprecated
 	Ports                  nat.PortMap
-	HairpinMode            bool
+	SandboxKey             string
+	SecondaryIPAddresses   []Address
+	SecondaryIPv6Addresses []Address
 }

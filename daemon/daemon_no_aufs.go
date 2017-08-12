@@ -1,4 +1,4 @@
-// +build exclude_graphdriver_aufs, +build freebsd
+// +build exclude_graphdriver_aufs,linux, +build freebsd
 
 package daemon
 

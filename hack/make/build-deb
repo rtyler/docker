@@ -1,11 +1,10 @@
 #!/bin/bash
 set -e
 
-DEST=$1
-
-# subshell so that we can export PATH without breaking other things
+# subshell so that we can export PATH and TZ without breaking other things
 (
-	source "${MAKEDIR}/.integration-daemon-start"
+	export TZ=UTC # make sure our "date" variables are UTC-based
+	bundle .integration-daemon-start
 
 	# TODO consider using frozen images for the dockercore/builder-deb tags
 
@@ -35,7 +34,7 @@ DEST=$1
 	debDate="$(date --rfc-2822)"
 
 	# if go-md2man is available, pre-generate the man pages
-	./docs/man/md2man-all.sh -q || true
+	./man/md2man-all.sh -q || true
 	# TODO decide if it's worth getting go-md2man in _each_ builder environment to avoid this
 
 	# TODO add a configurable knob for _which_ debs to build so we don't have to modify the file or build all of them every time we need to test
@@ -53,6 +52,11 @@ DEST=$1
 			FROM $image
 			WORKDIR /usr/src/docker
 			COPY . /usr/src/docker
+		EOF
+		if [ "$DOCKER_EXPERIMENTAL" ]; then
+			echo 'ENV DOCKER_EXPERIMENTAL 1' >> "$DEST/$version/Dockerfile.build"
+		fi
+		cat >> "$DEST/$version/Dockerfile.build" <<-EOF
 			RUN ln -sfv hack/make/.build-deb debian
 			RUN { echo '$debSource (${debVersion}-0~${suite}) $suite; urgency=low'; echo; echo '  * Version: $VERSION'; echo; echo " -- $debMaintainer  $debDate"; } > debian/changelog && cat >&2 debian/changelog
 			RUN dpkg-buildpackage -uc -us
@@ -63,5 +67,5 @@ DEST=$1
 		docker rmi "$tempImage"
 	done
 
-	source "${MAKEDIR}/.integration-daemon-stop"
+	bundle .integration-daemon-stop
 ) 2>&1 | tee -a "$DEST/test.log"

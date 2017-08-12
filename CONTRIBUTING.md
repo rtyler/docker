@@ -4,7 +4,7 @@ Want to hack on Docker? Awesome!  We have a contributor's guide that explains
 [setting up a Docker development environment and the contribution
 process](https://docs.docker.com/project/who-written-for/). 
 
-![Contributors guide](docs/sources/static_files/contributors.png)
+![Contributors guide](docs/static_files/contributors.png)
 
 This page contains information about reporting issues as well as some tips and
 guidelines useful to experienced open source contributors. Finally, make sure
@@ -28,8 +28,8 @@ Please **DO NOT** file a public issue, instead send your report privately to
 [security@docker.com](mailto:security@docker.com), 
 
 Security reports are greatly appreciated and we will publicly thank you for it.
-We also like to send gifts&mdash;if you're into Docker schwag make sure to let
-us know We currently do not offer a paid security bounty program, but are not
+We also like to send gifts&mdash;if you're into Docker schwag, make sure to let
+us know. We currently do not offer a paid security bounty program, but are not
 ruling it out in the future.
 
 
@@ -129,12 +129,12 @@ However, there might be a way to implement that feature *on top of* Docker.
   <col width="45%">
   <col width="65%">
   <tr>
-    <td>Internet&nbsp;Relay&nbsp;Chat&nbsp;(IRC)</th>
+    <td>Internet&nbsp;Relay&nbsp;Chat&nbsp;(IRC)</td>
     <td>
       <p>
         IRC a direct line to our most knowledgeable Docker users; we have
-        both the  <code>#docker</code> and <code>#docker-dev</code> group on 
-        <strong>irc.freenode.net</strong>.  
+        both the  <code>#docker</code> and <code>#docker-dev</code> group on
+        <strong>irc.freenode.net</strong>.
         IRC is a rich chat protocol but it can overwhelm new users. You can search
         <a href="https://botbot.me/freenode/docker/#" target="_blank">our chat archives</a>.
       </p>
@@ -146,9 +146,9 @@ However, there might be a way to implement that feature *on top of* Docker.
     <td>
       There are two groups.
       <a href="https://groups.google.com/forum/#!forum/docker-user" target="_blank">Docker-user</a>
-      is for people using Docker containers. 
-      The <a href="https://groups.google.com/forum/#!forum/docker-dev" target="_blank">docker-dev</a> 
-      group is for contributors and other people contributing to the Docker 
+      is for people using Docker containers.
+      The <a href="https://groups.google.com/forum/#!forum/docker-dev" target="_blank">docker-dev</a>
+      group is for contributors and other people contributing to the Docker
       project.
     </td>
   </tr>
@@ -156,14 +156,14 @@ However, there might be a way to implement that feature *on top of* Docker.
     <td>Twitter</td>
     <td>
       You can follow <a href="https://twitter.com/docker/" target="_blank">Docker's Twitter feed</a>
-      to get updates on our products. You can also tweet us questions or just 
+      to get updates on our products. You can also tweet us questions or just
       share blogs or stories.
     </td>
   </tr>
   <tr>
     <td>Stack Overflow</td>
     <td>
-      Stack Overflow has over 7000K Docker questions listed. We regularly 
+      Stack Overflow has over 7000K Docker questions listed. We regularly
       monitor <a href="https://stackoverflow.com/search?tab=newest&q=docker" target="_blank">Docker questions</a>
       and so do many other knowledgeable Docker users.
     </td>
@@ -220,7 +220,7 @@ set of patches that should be reviewed together: for example, upgrading the
 version of a vendored dependency and taking advantage of its now available new
 feature constitute two separate units of work. Implementing a new function and
 calling it in another file constitute a single logical unit of work. The very
-high majory of submissions should have a single commit, so if in doubt: squash
+high majority of submissions should have a single commit, so if in doubt: squash
 down to one.
 
 After every commit, [make sure the test suite passes]
@@ -233,6 +233,8 @@ close an issue. Including references automatically closes the issue on a merge.
 
 Please do not add yourself to the `AUTHORS` file, as it is regenerated regularly
 from the Git history.
+
+Please see the [Coding Style](#coding-style) for further guidelines.
 
 ### Merge approval
 
@@ -317,7 +319,7 @@ maintainer to make a difference on the project!
 
 ### IRC meetings
 
-There are two monthly meetings taking place on #docker-dev IRC to accomodate all
+There are two monthly meetings taking place on #docker-dev IRC to accommodate all
 timezones. Anybody can propose a topic for discussion prior to the meeting.
 
 If you feel the conversation is going off-topic, feel free to point it out.
@@ -385,3 +387,49 @@ do need a fair way to deal with people who are making our community suck.
 	appeals, we know that mistakes happen, and we'll work with you to come up with a
 	fair solution if there has been a misunderstanding.
 
+## Coding Style
+
+Unless explicitly stated, we follow all coding guidelines from the Go
+community. While some of these standards may seem arbitrary, they somehow seem
+to result in a solid, consistent codebase.
+
+It is possible that the code base does not currently comply with these
+guidelines. We are not looking for a massive PR that fixes this, since that
+goes against the spirit of the guidelines. All new contributions should make a
+best effort to clean up and make the code base better than they left it.
+Obviously, apply your best judgement. Remember, the goal here is to make the
+code base easier for humans to navigate and understand. Always keep that in
+mind when nudging others to comply.
+
+The rules:
+
+1. All code should be formatted with `gofmt -s`.
+2. All code should pass the default levels of
+   [`golint`](https://github.com/golang/lint).
+3. All code should follow the guidelines covered in [Effective
+   Go](http://golang.org/doc/effective_go.html) and [Go Code Review
+   Comments](https://github.com/golang/go/wiki/CodeReviewComments).
+4. Comment the code. Tell us the why, the history and the context.
+5. Document _all_ declarations and methods, even private ones. Declare
+   expectations, caveats and anything else that may be important. If a type
+   gets exported, having the comments already there will ensure it's ready.
+6. Variable name length should be proportional to it's context and no longer.
+   `noCommaALongVariableNameLikeThisIsNotMoreClearWhenASimpleCommentWouldDo`.
+   In practice, short methods will have short variable names and globals will
+   have longer names.
+7. No underscores in package names. If you need a compound name, step back,
+   and re-examine why you need a compound name. If you still think you need a
+   compound name, lose the underscore.
+8. No utils or helpers packages. If a function is not general enough to
+   warrant it's own package, it has not been written generally enough to be a
+   part of a util package. Just leave it unexported and well-documented.
+9. All tests should run with `go test` and outside tooling should not be
+   required. No, we don't need another unit testing framework. Assertion
+   packages are acceptable if they provide _real_ incremental value.
+10. Even though we call these "rules" above, they are actually just
+    guidelines. Since you've read all the rules, you now know that.
+
+If you are having trouble getting into the mood of idiomatic Go, we recommend
+reading through [Effective Go](http://golang.org/doc/effective_go.html). The
+[Go Blog](http://blog.golang.org/) is also a great resource. Drinking the
+kool-aid is a lot easier than going thirsty.

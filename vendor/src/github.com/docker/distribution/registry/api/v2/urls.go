@@ -62,7 +62,12 @@ func NewURLBuilderFromRequest(r *http.Request) *URLBuilder {
 	host := r.Host
 	forwardedHost := r.Header.Get("X-Forwarded-Host")
 	if len(forwardedHost) > 0 {
-		host = forwardedHost
+		// According to the Apache mod_proxy docs, X-Forwarded-Host can be a
+		// comma-separated list of hosts, to which each proxy appends the
+		// requested host. We want to grab the first from this comma-separated
+		// list.
+		hosts := strings.SplitN(forwardedHost, ",", 2)
+		host = strings.TrimSpace(hosts[0])
 	}
 
 	basePath := routeDescriptorsMap[RouteNameBase].Path
@@ -93,6 +98,18 @@ func (ub *URLBuilder) BuildBaseURL() (string, error) {
 	}
 
 	return baseURL.String(), nil
+}
+
+// BuildCatalogURL constructs a url get a catalog of repositories
+func (ub *URLBuilder) BuildCatalogURL(values ...url.Values) (string, error) {
+	route := ub.cloneRoute(RouteNameCatalog)
+
+	catalogURL, err := route.URL()
+	if err != nil {
+		return "", err
+	}
+
+	return appendValuesURL(catalogURL, values...).String(), nil
 }
 
 // BuildTagsURL constructs a url to list the tags in the named repository.
