@@ -181,18 +181,6 @@ func (h *Handle) ClassList(link Link, parent uint32) ([]Class, error) {
 	return nil, ErrNotImplemented
 }
 
-func (h *Handle) FilterDel(filter Filter) error {
-	return ErrNotImplemented
-}
-
-func (h *Handle) FilterAdd(filter Filter) error {
-	return ErrNotImplemented
-}
-
-func (h *Handle) FilterList(link Link, parent uint32) ([]Filter, error) {
-	return nil, ErrNotImplemented
-}
-
 func (h *Handle) NeighAdd(neigh *Neigh) error {
 	return ErrNotImplemented
 }
