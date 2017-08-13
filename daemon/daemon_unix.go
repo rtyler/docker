@@ -351,12 +351,14 @@ func initNetworkController(config *Config) (libnetwork.NetworkController, error)
 		return nil, fmt.Errorf("Error creating default \"host\" network: %v", err)
 	}
 
-	if !config.DisableBridge {
-		// Initialize default driver "bridge"
-		if err := initBridgeDriver(controller, config); err != nil {
-			return nil, err
-		}
-	}
+    // FREEBSD temporarily disabled until the older bridge code can be
+    // refactored to the new interfaces
+    //if !config.DisableBridge {
+    //	// Initialize default driver "bridge"
+    //	if err := initBridgeDriver(controller, config); err != nil {
+    //		return nil, err
+    //	}
+    //}
 
 	return controller, nil
 }
