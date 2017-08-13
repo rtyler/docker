@@ -1,4 +1,3 @@
-
 package sysinfo
 
 // FREEBSD: Need to implement sysinfo checking

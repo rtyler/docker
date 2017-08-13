@@ -17,8 +17,8 @@ import (
 	"github.com/docker/docker/daemon/execdriver"
 	"github.com/docker/docker/pkg/term"
 
-	"github.com/kr/pty"
 	"github.com/Sirupsen/logrus"
+	"github.com/kr/pty"
 )
 
 const DriverName = "jail"

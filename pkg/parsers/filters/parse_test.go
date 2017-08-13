@@ -134,25 +134,25 @@ func TestArgsMatchKVList(t *testing.T) {
 		"key3": "value3",
 	}
 	matches := map[*Args]string{
-		&Args{}: "field",
-		&Args{
+		{}: "field",
+		{
 			"created": []string{"today"},
 			"labels":  []string{"key1"},
 		}: "labels",
-		&Args{
+		{
 			"created": []string{"today"},
 			"labels":  []string{"key1=value1"},
 		}: "labels",
 	}
 	differs := map[*Args]string{
-		&Args{
+		{
 			"created": []string{"today"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"today"},
 			"labels":  []string{"key4"},
 		}: "labels",
-		&Args{
+		{
 			"created": []string{"today"},
 			"labels":  []string{"key1=value3"},
 		}: "labels",
@@ -172,35 +172,35 @@ func TestArgsMatchKVList(t *testing.T) {
 func TestArgsMatch(t *testing.T) {
 	source := "today"
 	matches := map[*Args]string{
-		&Args{}: "field",
-		&Args{
+		{}: "field",
+		{
 			"created": []string{"today"},
 			"labels":  []string{"key1"},
 		}: "today",
-		&Args{
+		{
 			"created": []string{"to*"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"to(.*)"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"tod"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"anything", "to*"},
 		}: "created",
 	}
 	differs := map[*Args]string{
-		&Args{
+		{
 			"created": []string{"tomorrow"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"to(day"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"tom(.*)"},
 		}: "created",
-		&Args{
+		{
 			"created": []string{"today1"},
 			"labels":  []string{"today"},
 		}: "created",
