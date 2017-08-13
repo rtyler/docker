@@ -194,3 +194,8 @@ func (t *unixTransport) SendMessage(msg *Message) error {
 func (t *unixTransport) SupportsUnixFDs() bool {
 	return true
 }
+
+func (t *unixTransport) SendNullByte() error {
+	_, err := t.Write([]byte{0})
+	return err
+}
