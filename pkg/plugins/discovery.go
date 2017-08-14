@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"github.com/Sirupsen/logrus"
 )
 
 var (
@@ -30,6 +31,8 @@ func newLocalRegistry() LocalRegistry {
 
 func (l *LocalRegistry) Plugin(name string) (*Plugin, error) {
 	socketpaths := pluginPaths(socketsPath, name, ".sock")
+
+	logrus.Debug("Attempting to load plugin ", name)
 
 	for _, p := range socketpaths {
 		if fi, err := os.Stat(p); err == nil && fi.Mode()&os.ModeSocket != 0 {

@@ -1,4 +1,7 @@
+// +build linux
+
 package bridge
+
 
 import (
 	"fmt"

@@ -1,3 +1,5 @@
+// +build linux
+
 package bridge
 
 import (
@@ -11,15 +13,6 @@ const (
 	// by the driver when unspecified by the caller.
 	DefaultBridgeName = "docker0"
 )
-
-// Interface models the bridge network device.
-type bridgeInterface struct {
-	Link        netlink.Link
-	bridgeIPv4  *net.IPNet
-	bridgeIPv6  *net.IPNet
-	gatewayIPv4 net.IP
-	gatewayIPv6 net.IP
-}
 
 // newInterface creates a new bridge interface structure. It attempts to find
 // an already existing device identified by the configuration BridgeName field,

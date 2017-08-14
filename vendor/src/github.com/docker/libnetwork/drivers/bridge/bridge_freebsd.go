@@ -13,13 +13,16 @@ import (
 	"sync"
 
 	"github.com/Sirupsen/logrus"
+
+	"github.com/docker/docker/pkg/nat"
 	"github.com/docker/docker/daemon/network"
-	"github.com/docker/docker/daemon/networkdriver"
-	"github.com/docker/docker/daemon/networkdriver/ipallocator"
-	"github.com/docker/docker/daemon/networkdriver/portmapper"
-	"github.com/docker/docker/nat"
-	"github.com/docker/docker/pkg/resolvconf"
-	"github.com/docker/libcontainer/netlink"
+
+	"github.com/docker/libnetwork/driverapi"
+	"github.com/docker/libnetwork/netutils"
+	"github.com/docker/libnetwork/portmapper"
+	"github.com/docker/libnetwork/resolvconf"
+
+	"github.com/opencontainers/runc/libcontainer/netlink"
 )
 
 const (
@@ -83,9 +86,7 @@ var (
 	once              sync.Once
 	hairpinMode       bool
 
-	defaultBindingIP  = net.ParseIP("0.0.0.0")
 	currentInterfaces = ifaces{c: make(map[string]*networkInterface)}
-	ipAllocator       = ipallocator.New()
 )
 
 func initPortMapper() {
@@ -110,7 +111,8 @@ type Config struct {
 	InterContainerCommunication bool
 }
 
-func InitDriver(config *Config) error {
+// Init registers a new instance of bridge driver
+func Init(dc driverapi.DriverCallback) error {
 	var (
 		networkv4  *net.IPNet
 		networkv6  *net.IPNet
@@ -118,14 +120,13 @@ func InitDriver(config *Config) error {
 		addrsv6    []net.Addr
 		bridgeIPv6 = "fe80::1/64"
 	)
+	config := Config{}
 
 	logrus.Debugf("[bridge] init driver")
 
-  // try to modprobe bridge first
-  // see gh#12177
-  if out, err := exec.Command("kldload", "-n", "pf").Output(); err != nil {
-    logrus.Warnf("Running kldload pf failed with message: %s, error: %v", out, err)
-  }
+	if out, err := exec.Command("kldload", "-n", "pf").Output(); err != nil {
+		logrus.Warnf("Running kldload pf failed with message: %s, error: %v", out, err)
+	}
 
 	initPortMapper()
 
@@ -142,14 +143,14 @@ func InitDriver(config *Config) error {
 		bridgeIface = DefaultNetworkBridge
 	}
 
-	addrv4, addrsv6, err := networkdriver.GetIfaceAddr(bridgeIface)
+	addrv4, addrsv6, err := netutils.GetIfaceAddr(bridgeIface)
 
-  // FIXME: On FreeBSD the vnet driver is not very stable and requires kernel recompilation
-  // so now we just using shared network interface, not the real bridge
+	// FIXME: On FreeBSD the vnet driver is not very stable and requires kernel recompilation
+	// so now we just using shared network interface, not the real bridge
 
 	if err != nil {
 		// No Bridge existent, create one
-		// If we're not using the default bridge, fail without trying to create it		
+		// If we're not using the default bridge, fail without trying to create it
 		if !usingDefaultBridge {
 		 	return err
 		}
@@ -162,7 +163,7 @@ func InitDriver(config *Config) error {
 			return err
 		}
 
-		addrv4, addrsv6, err = networkdriver.GetIfaceAddr(bridgeIface)
+		addrv4, addrsv6, err = netutils.GetIfaceAddr(bridgeIface)
 		if err != nil {
 			return err
 		}
@@ -175,7 +176,6 @@ func InitDriver(config *Config) error {
 			}
 		}
 	} else {
-
 		logrus.Debugf("[bridge] found ip address: %s", addrv4)
 
 		// Bridge exists already, getting info...
@@ -197,18 +197,22 @@ func InitDriver(config *Config) error {
 		// the bridge init for IPv6 here, else we will error out below if --ipv6=true
 		if len(addrsv6) == 0 && config.EnableIPv6 {
 			if err := setupIPv6Bridge(bridgeIPv6); err != nil {
+				logrus.Error("Failed to set up a bridge with IPv6", err)
 				return err
 			}
 			// Recheck addresses now that IPv6 is setup on the bridge
-			addrv4, addrsv6, err = networkdriver.GetIfaceAddr(bridgeIface)			
+			addrv4, addrsv6, err = netutils.GetIfaceAddr(bridgeIface)
 
 			if err != nil {
+				logrus.Error("Failed to get an interface address", err)
 				return err
 			}
 		}
 
 		// TODO: Check if route to config.FixedCIDRv6 is set
 	}
+
+	logrus.Debug("[bridge] finished setting up IP")
 
 	if config.EnableIPv6 {
 		bip6, _, err := net.ParseCIDR(bridgeIPv6)
@@ -237,69 +241,6 @@ func InitDriver(config *Config) error {
 		bridgeIPv6Addr = networkv6.IP
 	}
 
-	// if config.EnableIptables {
-	// 	if err := iptables.FirewalldInit(); err != nil {
-	// 		logrus.Debugf("Error initializing firewalld: %v", err)
-	// 	}
-	// }
-
-	// // Configure iptables for link support
-	// if config.EnableIptables {
-	// 	if err := setupIPTables(addrv4, config.InterContainerCommunication, config.EnableIpMasq); err != nil {
-	// 		logrus.Errorf("Error configuring iptables: %s", err)
-	// 		return err
-	// 	}
-	// 	// call this on Firewalld reload
-	// 	//iptables.OnReloaded(func() { setupIPTables(addrv4, config.InterContainerCommunication, config.EnableIpMasq) })
-	// }
-
-	// if config.EnableIpForward {
-	// 	// Enable IPv4 forwarding
-	// 	if err := ioutil.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte{'1', '\n'}, 0644); err != nil {
-	// 		logrus.Warnf("Unable to enable IPv4 forwarding: %v", err)
-	// 	}
-
-	// 	if config.FixedCIDRv6 != "" {
-	// 		// Enable IPv6 forwarding
-	// 		if err := ioutil.WriteFile("/proc/sys/net/ipv6/conf/default/forwarding", []byte{'1', '\n'}, 0644); err != nil {
-	// 			logrus.Warnf("Unable to enable IPv6 default forwarding: %v", err)
-	// 		}
-	// 		if err := ioutil.WriteFile("/proc/sys/net/ipv6/conf/all/forwarding", []byte{'1', '\n'}, 0644); err != nil {
-	// 			logrus.Warnf("Unable to enable IPv6 all forwarding: %v", err)
-	// 		}
-	// 	}
-	// }
-
-	// if hairpinMode {
-	// 	// Enable loopback adresses routing
-	// 	sysPath := filepath.Join("/proc/sys/net/ipv4/conf", bridgeIface, "route_localnet")
-	// 	if err := ioutil.WriteFile(sysPath, []byte{'1', '\n'}, 0644); err != nil {
-	// 		logrus.Warnf("Unable to enable local routing for hairpin mode: %v", err)
-	// 	}
-	// }
-
-	// We can always try removing the iptables
-	// if err := iptables.RemoveExistingChain("DOCKER", iptables.Nat); err != nil {
-	// 	return err
-	// }
-
-	// if config.EnableIptables {
-	// 	_, err := iptables.NewChain("DOCKER", bridgeIface, iptables.Nat, hairpinMode)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	// call this on Firewalld reload
-	// 	iptables.OnReloaded(func() { iptables.NewChain("DOCKER", bridgeIface, iptables.Nat, hairpinMode) })
-	// 	chain, err := iptables.NewChain("DOCKER", bridgeIface, iptables.Filter, hairpinMode)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	// call this on Firewalld reload
-	// 	iptables.OnReloaded(func() { iptables.NewChain("DOCKER", bridgeIface, iptables.Filter, hairpinMode) })
-
-	// 	portMapper.SetIptablesChain(chain)
-	// }
-
 	bridgeIPv4Network = networkv4
 	if config.FixedCIDR != "" {
 		_, subnet, err := net.ParseCIDR(config.FixedCIDR)
@@ -314,6 +255,7 @@ func InitDriver(config *Config) error {
 	}
 
 	if gateway, err := requestDefaultGateway(config.DefaultGatewayIPv4, bridgeIPv4Network); err != nil {
+		logrus.Error("[bridge] Failed to request a default gateway", err)
 		return err
 	} else {
 		gatewayIPv4 = gateway
@@ -341,91 +283,13 @@ func InitDriver(config *Config) error {
 	// Block BridgeIP in IP allocator
 	ipAllocator.RequestIP(bridgeIPv4Network, bridgeIPv4Network.IP)
 
-	// if config.EnableIptables {
-	// 	iptables.OnReloaded(portMapper.ReMapAll) // call this on Firewalld reload
-	// }
+	logrus.Debug("[bridge] Finished with bridge Init")
 
 	return nil
+	//return dc.RegisterDriver(networkType, newDriver(), c)
 }
 
 func setupIPTables(addr net.Addr, icc, ipmasq bool) error {
-	// Enable NAT
-
-	// if ipmasq {
-	// 	natArgs := []string{"-s", addr.String(), "!", "-o", bridgeIface, "-j", "MASQUERADE"}
-
-	// 	if !iptables.Exists(iptables.Nat, "POSTROUTING", natArgs...) {
-	// 		if output, err := iptables.Raw(append([]string{
-	// 			"-t", string(iptables.Nat), "-I", "POSTROUTING"}, natArgs...)...); err != nil {
-	// 			return fmt.Errorf("Unable to enable network bridge NAT: %s", err)
-	// 		} else if len(output) != 0 {
-	// 			return iptables.ChainError{Chain: "POSTROUTING", Output: output}
-	// 		}
-	// 	}
-	// }
-
-	// var (
-	// 	args       = []string{"-i", bridgeIface, "-o", bridgeIface, "-j"}
-	// 	acceptArgs = append(args, "ACCEPT")
-	// 	dropArgs   = append(args, "DROP")
-	// )
-
-	// if !icc {
-	// 	iptables.Raw(append([]string{"-D", "FORWARD"}, acceptArgs...)...)
-
-	// 	if !iptables.Exists(iptables.Filter, "FORWARD", dropArgs...) {
-	// 		logrus.Debugf("Disable inter-container communication")
-	// 		if output, err := iptables.Raw(append([]string{"-A", "FORWARD"}, dropArgs...)...); err != nil {
-	// 			return fmt.Errorf("Unable to prevent intercontainer communication: %s", err)
-	// 		} else if len(output) != 0 {
-	// 			return fmt.Errorf("Error disabling intercontainer communication: %s", output)
-	// 		}
-	// 	}
-	// } else {
-	// 	iptables.Raw(append([]string{"-D", "FORWARD"}, dropArgs...)...)
-
-	// 	if !iptables.Exists(iptables.Filter, "FORWARD", acceptArgs...) {
-	// 		logrus.Debugf("Enable inter-container communication")
-	// 		if output, err := iptables.Raw(append([]string{"-A", "FORWARD"}, acceptArgs...)...); err != nil {
-	// 			return fmt.Errorf("Unable to allow intercontainer communication: %s", err)
-	// 		} else if len(output) != 0 {
-	// 			return fmt.Errorf("Error enabling intercontainer communication: %s", output)
-	// 		}
-	// 	}
-	// }
-
-	// // In hairpin mode, masquerade traffic from localhost
-	// if hairpinMode {
-	// 	masqueradeArgs := []string{"-t", "nat", "-m", "addrtype", "--src-type", "LOCAL", "-o", bridgeIface, "-j", "MASQUERADE"}
-	// 	if !iptables.Exists(iptables.Filter, "POSTROUTING", masqueradeArgs...) {
-	// 		if output, err := iptables.Raw(append([]string{"-I", "POSTROUTING"}, masqueradeArgs...)...); err != nil {
-	// 			return fmt.Errorf("Unable to masquerade local traffic: %s", err)
-	// 		} else if len(output) != 0 {
-	// 			return fmt.Errorf("Error iptables masquerade local traffic: %s", output)
-	// 		}
-	// 	}
-	// }
-
-	// // Accept all non-intercontainer outgoing packets
-	// outgoingArgs := []string{"-i", bridgeIface, "!", "-o", bridgeIface, "-j", "ACCEPT"}
-	// if !iptables.Exists(iptables.Filter, "FORWARD", outgoingArgs...) {
-	// 	if output, err := iptables.Raw(append([]string{"-I", "FORWARD"}, outgoingArgs...)...); err != nil {
-	// 		return fmt.Errorf("Unable to allow outgoing packets: %s", err)
-	// 	} else if len(output) != 0 {
-	// 		return iptables.ChainError{Chain: "FORWARD outgoing", Output: output}
-	// 	}
-	// }
-
-	// // Accept incoming packets for existing connections
-	// existingArgs := []string{"-o", bridgeIface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"}
-
-	// if !iptables.Exists(iptables.Filter, "FORWARD", existingArgs...) {
-	// 	if output, err := iptables.Raw(append([]string{"-I", "FORWARD"}, existingArgs...)...); err != nil {
-	// 		return fmt.Errorf("Unable to allow incoming packets: %s", err)
-	// 	} else if len(output) != 0 {
-	// 		return iptables.ChainError{Chain: "FORWARD incoming", Output: output}
-	// 	}
-	// }
 	return nil
 }
 
@@ -463,8 +327,8 @@ func configureBridge(bridgeIP string, bridgeIPv6 string, enableIPv6 bool) error 
 			if err != nil {
 				return err
 			}
-			if err := networkdriver.CheckNameserverOverlaps(nameservers, dockerNetwork); err == nil {
-				// FIXME: UGLY HACK netlink functions are not implemented for freebsd				
+			if err := netutils.CheckNameserverOverlaps(nameservers, dockerNetwork); err == nil {
+				// FIXME: UGLY HACK netlink functions are not implemented for freebsd
 				//if err := networkdriver.CheckRouteOverlaps(dockerNetwork); err == nil {
 					ifaceAddr = addr
 					break
@@ -487,19 +351,11 @@ func configureBridge(bridgeIP string, bridgeIPv6 string, enableIPv6 bool) error 
 		}
 	}
 
-	// iface, err := net.InterfaceByName(bridgeIface)
-	// if err != nil {
-	// 	return err
-	// }
-
 	ipAddr, ipNet, err := net.ParseCIDR(ifaceAddr)
 	if err != nil {
 		return err
 	}
 
-//	if err := netlink.NetworkLinkAddIp(iface, ipAddr, ipNet); err != nil {
-
-	//logrus.Debugf("running %s", []string{"/sbin/ifconfig", bridgeIface, "inet", ipAddr.String(), "netmask", "0x" + ipNet.Mask.String()})
 	if err := exec.Command("/sbin/ifconfig", bridgeIface, "inet", ipAddr.String(), "netmask", "0x" + ipNet.Mask.String()).Run(); err != nil {
 		return fmt.Errorf("Unable to add private network: %s", err)
 	}
@@ -561,13 +417,6 @@ func requestDefaultGateway(requestedGateway string, network *net.IPNet) (gateway
 }
 
 func createBridgeIface(name string) error {
-	//kv, err := kernel.GetKernelVersion()
-	// // Only set the bridge's mac address if the kernel version is > 3.3
-	// // before that it was not supported
-	// setBridgeMacAddr := err == nil && (kv.Kernel >= 3 && kv.Major >= 3)
-	// logrus.Debugf("setting bridge mac address = %v", setBridgeMacAddr)
-	// return netlink.CreateBridge(name, setBridgeMacAddr)
-
 	if err := exec.Command("/sbin/ifconfig", name, "create").Run(); err != nil {
 		return err
 	}
@@ -733,10 +582,10 @@ func AllocatePort(id string, port nat.Port, binding nat.PortBinding) (nat.PortBi
 		network       = currentInterfaces.Get(id)
 	)
 
-	if binding.HostIp != "" {
-		ip = net.ParseIP(binding.HostIp)
+	if binding.HostIP != "" {
+		ip = net.ParseIP(binding.HostIP)
 		if ip == nil {
-			return nat.PortBinding{}, fmt.Errorf("Bad parameter: invalid host ip %s", binding.HostIp)
+			return nat.PortBinding{}, fmt.Errorf("Bad parameter: invalid host ip %s", binding.HostIP)
 		}
 	}
 
@@ -750,13 +599,6 @@ func AllocatePort(id string, port nat.Port, binding nat.PortBinding) (nat.PortBi
 	default:
 		return nat.PortBinding{}, fmt.Errorf("unsupported address type %s", proto)
 	}
-
-	//
-	// Try up to 10 times to get a port that's not already allocated.
-	//
-	// In the event of failure to bind, return the error that portmapper.Map
-	// yields.
-	//
 
 	var (
 		host net.Addr
@@ -787,43 +629,14 @@ func AllocatePort(id string, port nat.Port, binding nat.PortBinding) (nat.PortBi
 
 	switch netAddr := host.(type) {
 	case *net.TCPAddr:
-		return nat.PortBinding{HostIp: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
+		return nat.PortBinding{HostIP: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
 	case *net.UDPAddr:
-		return nat.PortBinding{HostIp: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
+		return nat.PortBinding{HostIP: netAddr.IP.String(), HostPort: strconv.Itoa(netAddr.Port)}, nil
 	default:
 		return nat.PortBinding{}, fmt.Errorf("unsupported address type %T", netAddr)
 	}
 }
 
-//TODO: should it return something more than just an error?
 func LinkContainers(action, parentIP, childIP string, ports []nat.Port, ignoreErrors bool) error {
-	// var nfAction iptables.Action
-
-	// switch action {
-	// case "-A":
-	// 	nfAction = iptables.Append
-	// case "-I":
-	// 	nfAction = iptables.Insert
-	// case "-D":
-	// 	nfAction = iptables.Delete
-	// default:
-	// 	return fmt.Errorf("Invalid action '%s' specified", action)
-	// }
-
-	// ip1 := net.ParseIP(parentIP)
-	// if ip1 == nil {
-	// 	return fmt.Errorf("Parent IP '%s' is invalid", parentIP)
-	// }
-	// ip2 := net.ParseIP(childIP)
-	// if ip2 == nil {
-	// 	return fmt.Errorf("Child IP '%s' is invalid", childIP)
-	// }
-
-	// chain := iptables.Chain{Name: "DOCKER", Bridge: bridgeIface}
-	// for _, port := range ports {
-	// 	if err := chain.Link(nfAction, ip1, ip2, port.Int(), port.Proto()); !ignoreErrors && err != nil {
-	// 		return err
-	// 	}
-	// }
 	return nil
 }
